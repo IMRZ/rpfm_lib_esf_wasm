@@ -1,0 +1,17 @@
+[package]
+name = "rpfm_lib_esf_wasm"
+license = "MIT"
+
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+
+rpfm_lib = { path = "../rpfm_lib", version = "4.7.4" }
+serde = "^1.0"
+wasm-bindgen = "0.2"
+serde-wasm-bindgen = "0.6.5"
