@@ -1,0 +1,12 @@
+{
+  "name": "rpfm_lib_esf_wasm",
+  "version": "4.7.4",
+  "license": "MIT",
+  "files": [
+    "rpfm_lib_esf_wasm_bg.wasm",
+    "rpfm_lib_esf_wasm.js",
+    "rpfm_lib_esf_wasm.d.ts"
+  ],
+  "main": "rpfm_lib_esf_wasm.js",
+  "types": "rpfm_lib_esf_wasm.d.ts"
+}
