@@ -63,10 +63,11 @@ impl ESF {
             strings_utf8.insert(index, name);
         }
 
-        // If we're not at the end of the file, something failed.
-        let data_len = data.len()?;
+        // The string tables are the last thing in a well-formed file, but real files can carry
+        // zero padding after them. Anything else means the tables parsed to the wrong place.
         let curr_pos = data.stream_position()?;
-        if curr_pos != data_len {
+        let data_len = data.len()?;
+        if curr_pos != data_len && !ESF::only_padding_remains(data)? {
             return Err(RLibError::DecodingMismatchSizeError(data_len as usize, curr_pos as usize));
         }
 
@@ -74,7 +75,7 @@ impl ESF {
         data.seek(SeekFrom::Start(nodes_offset))?;
 
         // This file is a big tree hanging from the root node, so just decode everything recursively.
-        self.root_node = Self::read_node(data, true, &record_names, &strings_utf8, &strings_utf16)?;
+        self.root_node = read_node(data, true, &record_names, &strings_utf8, &strings_utf16)?;
 
         // If we're not at the exact end of the nodes, something failed.
         let curr_pos = data.stream_position()?;
@@ -209,7 +210,7 @@ impl ESF {
 
         // Next, encode the nodes. We need them (and the strings) encoded in order to know their offsets.
         let mut nodes_data = vec![];
-        Self::save_node(&mut nodes_data, &self.root_node, true, &record_names, &strings_utf8, &strings_utf16)?;
+        save_node(&mut nodes_data, &self.root_node, true, &record_names, &strings_utf8, &strings_utf16)?;
 
         // Then, encode the strings.
         let mut strings_data: Vec<u8> = vec![];
@@ -245,4 +246,277 @@ impl ESF {
 
         Ok(())
     }
+}
+
+//---------------------------------------------------------------------------//
+//                          CAAB node decoding/encoding
+//---------------------------------------------------------------------------//
+//
+// CAAB is part of the "7-bit" family: sizes and counts are CA's variable-length integers,
+// record info is only packed into 2 bytes when the record allows it, and strings are
+// referenced through the string tables read by `read_caab`.
+//
+// CBAB shares this exact node encoding, so `cbab.rs` holds a copy of this walker.
+
+/// Reads a CAAB node, and everything below it.
+pub(crate) fn read_node<R: ReadBytes>(
+    data: &mut R,
+    is_root_node: bool,
+    record_names: &[String],
+    strings_utf8: &BTreeMap<u32, String>,
+    strings_utf16: &BTreeMap<u32, String>
+) -> Result<NodeType> {
+    let next_byte = data.read_u8()?;
+
+    if next_byte & RecordNodeFlags::IS_RECORD_NODE.bits() != RecordNodeFlags::IS_RECORD_NODE.bits() {
+        return read_leaf(data, next_byte, strings_utf8, strings_utf16);
+    }
+
+    let record_flags = RecordNodeFlags::from_bits_truncate(next_byte);
+    let has_non_optimized_info =
+        record_flags.contains(RecordNodeFlags::HAS_NON_OPTIMIZED_INFO) || is_root_node;
+
+    // Only the root, and records that ask for it, spell out the name index and version.
+    let (name_index, version) = if has_non_optimized_info {
+        (data.read_u16()?, data.read_u8()?)
+    } else {
+        let version = (next_byte & 0x1E) >> 1;
+        let name_index = (((next_byte & 1) as u16) << 8) + data.read_u8()? as u16;
+        (name_index, version)
+    };
+
+    let name = record_names.get(name_index as usize)
+        .ok_or(RLibError::DecodingESFRecordNameNotFound(name_index))?
+        .to_owned();
+
+    let block_size = data.read_cauleb128()?;
+    let has_nested_blocks = record_flags.contains(RecordNodeFlags::HAS_NESTED_BLOCKS);
+    let group_count = if has_nested_blocks { data.read_cauleb128()? } else { 1 };
+    let final_block_offset = data.stream_position()? + block_size as u64;
+
+    let mut children = Vec::with_capacity(group_count as usize);
+    for _ in 0..group_count {
+        let group_end = if has_nested_blocks {
+            let entry_size = data.read_cauleb128()?;
+            data.stream_position()? + entry_size as u64
+        } else {
+            final_block_offset
+        };
+
+        let mut nodes = vec![];
+        while data.stream_position()? < group_end {
+            nodes.push(read_node(data, false, record_names, strings_utf8, strings_utf16)?);
+        }
+
+        let position = data.stream_position()?;
+        if position != group_end {
+            return Err(RLibError::DecodingMismatchSizeError(group_end as usize, position as usize));
+        }
+
+        children.push(nodes);
+    }
+
+    let position = data.stream_position()?;
+    if position != final_block_offset {
+        return Err(RLibError::DecodingMismatchSizeError(final_block_offset as usize, position as usize));
+    }
+
+    Ok(NodeType::Record(Box::new(RecordNode {
+        record_flags,
+        version,
+        name,
+        children,
+    })))
+}
+
+/// Reads a CAAB leaf node. Strings are looked up in the file's string tables.
+fn read_leaf<R: ReadBytes>(
+    data: &mut R,
+    next_byte: u8,
+    strings_utf8: &BTreeMap<u32, String>,
+    strings_utf16: &BTreeMap<u32, String>
+) -> Result<NodeType> {
+    match next_byte {
+        INVALID => Err(RLibError::DecodingESFUnsupportedDataType(next_byte)),
+
+        UTF16 => {
+            let index = data.read_u32()?;
+            match strings_utf16.get(&index) {
+                Some(value) => Ok(NodeType::Utf16(value.to_owned())),
+                None => Err(RLibError::DecodingESFStringNotFound(index)),
+            }
+        }
+        ASCII => {
+            let index = data.read_u32()?;
+            match strings_utf8.get(&index) {
+                Some(value) => Ok(NodeType::Ascii(value.to_owned())),
+                None => Err(RLibError::DecodingESFStringNotFound(index)),
+            }
+        }
+
+        UTF16_ARRAY => {
+            let size = data.read_cauleb128()?;
+            let end_offset = data.stream_position()? + size as u64;
+            let mut values = vec![];
+            while data.stream_position()? < end_offset {
+                let index = data.read_u32()?;
+                match strings_utf16.get(&index) {
+                    Some(value) => values.push(value.to_owned()),
+                    None => return Err(RLibError::DecodingESFStringNotFound(index)),
+                }
+            }
+            Ok(NodeType::Utf16Array(values))
+        }
+        ASCII_ARRAY => {
+            let size = data.read_cauleb128()?;
+            let end_offset = data.stream_position()? + size as u64;
+            let mut values = vec![];
+            while data.stream_position()? < end_offset {
+                let index = data.read_u32()?;
+                match strings_utf8.get(&index) {
+                    Some(value) => values.push(value.to_owned()),
+                    None => return Err(RLibError::DecodingESFStringNotFound(index)),
+                }
+            }
+            Ok(NodeType::AsciiArray(values))
+        }
+
+        UNKNOWN_21 => Ok(NodeType::Unknown21(data.read_u32()?)),
+        UNKNOWN_25 => Ok(NodeType::Unknown25(data.read_u32()?)),
+
+        _ => {
+            if ESF::is_primitive_array(next_byte) {
+                let size = data.read_cauleb128()?;
+                let end_offset = data.stream_position()? + size as u64;
+                return match ESF::read_array_items(data, next_byte, end_offset)? {
+                    Some(node) => Ok(node),
+                    None => Err(RLibError::DecodingESFUnsupportedDataType(next_byte)),
+                };
+            }
+
+            match ESF::read_primitive(data, next_byte)? {
+                Some(node) => Ok(node),
+                None => Err(RLibError::DecodingESFUnsupportedDataType(next_byte)),
+            }
+        }
+    }
+}
+
+/// Writes a CAAB node, and everything below it.
+pub(crate) fn save_node<W: WriteBytes>(
+    buffer: &mut W,
+    node: &NodeType,
+    is_root_node: bool,
+    record_names: &[String],
+    strings_utf8: &[String],
+    strings_utf16: &[String]
+) -> Result<()> {
+    if let NodeType::Record(record) = node {
+        let name_index = name_index(record_names, record.name())?;
+
+        if record.record_flags().contains(RecordNodeFlags::HAS_NON_OPTIMIZED_INFO) || is_root_node {
+            buffer.write_u8(record.record_flags().bits())?;
+            buffer.write_u16(name_index)?;
+            buffer.write_u8(*record.version())?;
+        } else {
+            let mut info: u16 = (record.record_flags().bits() as u16) << 8;
+            info |= (*record.version() as u16) << 9;
+            info |= name_index;
+
+            buffer.write_u16(info.swap_bytes())?;
+        }
+
+        let mut children_data = vec![];
+        if record.record_flags().contains(RecordNodeFlags::HAS_NESTED_BLOCKS) {
+            for group in record.children() {
+                let mut group_data = vec![];
+                for child in group {
+                    save_node(&mut group_data, child, false, record_names, strings_utf8, strings_utf16)?;
+                }
+
+                children_data.write_cauleb128(group_data.len() as u32, 0)?;
+                children_data.extend_from_slice(&group_data);
+            }
+
+            buffer.write_cauleb128(children_data.len() as u32, 0)?;
+            buffer.write_cauleb128(record.children().len() as u32, 0)?;
+        } else {
+            if let Some(group) = record.children().first() {
+                for child in group {
+                    save_node(&mut children_data, child, false, record_names, strings_utf8, strings_utf16)?;
+                }
+            }
+
+            buffer.write_cauleb128(children_data.len() as u32, 0)?;
+        }
+
+        buffer.write_all(&children_data)?;
+        return Ok(());
+    }
+
+    if let Some((marker, items)) = ESF::encode_array_items(node)? {
+        buffer.write_u8(marker)?;
+        buffer.write_cauleb128(items.len() as u32, 0)?;
+        buffer.write_all(&items)?;
+        return Ok(());
+    }
+
+    match node {
+        NodeType::Utf16(value) => {
+            buffer.write_u8(UTF16)?;
+            buffer.write_u32(string_index(strings_utf16, value)?)?;
+        }
+        NodeType::Ascii(value) => {
+            buffer.write_u8(ASCII)?;
+            buffer.write_u32(string_index(strings_utf8, value)?)?;
+        }
+        NodeType::Utf16Array(values) => {
+            buffer.write_u8(UTF16_ARRAY)?;
+            let mut items = vec![];
+            for value in values {
+                items.write_u32(string_index(strings_utf16, value)?)?;
+            }
+            buffer.write_cauleb128(items.len() as u32, 0)?;
+            buffer.write_all(&items)?;
+        }
+        NodeType::AsciiArray(values) => {
+            buffer.write_u8(ASCII_ARRAY)?;
+            let mut items = vec![];
+            for value in values {
+                items.write_u32(string_index(strings_utf8, value)?)?;
+            }
+            buffer.write_cauleb128(items.len() as u32, 0)?;
+            buffer.write_all(&items)?;
+        }
+        NodeType::Unknown21(value) => {
+            buffer.write_u8(UNKNOWN_21)?;
+            buffer.write_u32(*value)?;
+        }
+        NodeType::Unknown25(value) => {
+            buffer.write_u8(UNKNOWN_25)?;
+            buffer.write_u32(*value)?;
+        }
+
+        other => {
+            if !ESF::save_primitive(buffer, other)? {
+                return Err(RLibError::EncodingESFUnsupportedNodeType(format!("{other:?}")));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Position of a record name in the name table.
+fn name_index(record_names: &[String], name: &str) -> Result<u16> {
+    record_names.iter().position(|candidate| candidate == name)
+        .map(|index| index as u16)
+        .ok_or_else(|| RLibError::EncodingESFStringNotFound(name.to_owned()))
+}
+
+/// Position of a string in one of the string tables.
+fn string_index(strings: &[String], value: &str) -> Result<u32> {
+    strings.iter().position(|candidate| candidate == value)
+        .map(|index| index as u32)
+        .ok_or_else(|| RLibError::EncodingESFStringNotFound(value.to_owned()))
 }

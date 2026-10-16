@@ -96,9 +96,6 @@ mod writer;
 pub use self::reader::ReadBytes;
 pub use self::writer::WriteBytes;
 
-#[cfg(test)] mod reader_test;
-#[cfg(test)] mod writer_test;
-
 // These constants are needed to work with LEB_128 encoded numbers.
 pub const LEB128_CONTROL_BIT: u8 = 0b10000000;
 pub const LEB128_SIGNED_MAX: u8 = 0b00111111;

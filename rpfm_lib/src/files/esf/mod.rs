@@ -44,7 +44,13 @@ pub const SIGNATURE_CFAB: &[u8; 4] = &[0xCF, 0xAB, 0x00, 0x00];
 
 mod caab;
 mod cbab;
+mod ceab;
+mod cfab;
+mod common;
+mod reader;
 mod utils;
+
+pub use reader::{ESFReader, NodeId, NodeStub};
 
 #[cfg(test)] mod esf_test;
 
@@ -207,6 +213,11 @@ pub enum NodeType {
     Coord3d(Coordinates3DNode),
     Utf16(String),
     Ascii(String),
+
+    // CFAB-only ASCII strings, referenced by the 0x21 and 0x25 markers.
+    AsciiW21(String),
+    AsciiW25(String),
+
     Angle(i16),
 
     // Unknown Types
@@ -421,7 +432,8 @@ impl Decodeable for ESF {
         match esf.signature {
             ESFSignature::CAAB => Self::read_caab(&mut esf, data)?,
             ESFSignature::CBAB => Self::read_cbab(&mut esf, data)?,
-            _ => return Err(RLibError::DecodingESFUnsupportedSignature(sig_bytes[0], sig_bytes[1])),
+            ESFSignature::CEAB => Self::read_ceab(&mut esf, data)?,
+            ESFSignature::CFAB => Self::read_cfab(&mut esf, data)?,
         };
 
         // Debugging code.
@@ -442,7 +454,8 @@ impl Encodeable for ESF {
         match self.signature {
             ESFSignature::CAAB => self.save_caab(buffer, extra_data),
             ESFSignature::CBAB => self.save_cbab(buffer, extra_data),
-            _ => Err(RLibError::EncodingESFUnsupportedSignature(self.signature.to_string())),
+            ESFSignature::CEAB => self.save_ceab(buffer, extra_data),
+            ESFSignature::CFAB => self.save_cfab(buffer, extra_data),
         }
     }
 }

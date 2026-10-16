@@ -144,6 +144,21 @@ pub enum RLibError {
     #[error("String not found: {0}.")]
     DecodingESFStringNotFound(u32),
 
+    #[error("Error encoding an ESF: the string \"{0}\" is not in the string table.")]
+    EncodingESFStringNotFound(String),
+
+    #[error("Error encoding an ESF: unsupported node type {0}.")]
+    EncodingESFUnsupportedNodeType(String),
+
+    #[error("Invalid node id '{0}': the referenced buffer does not exist.")]
+    DecodingESFInvalidNodeId(String),
+
+    #[error("The node '{0}' is a record and has no single value. Use `materialize` or `children` instead.")]
+    DecodingESFNodeIsRecord(String),
+
+    #[error("The node '{0}' is not a COMPRESSED_DATA record, so it cannot be decompressed.")]
+    DecodingESFNotCompressedData(String),
+
     #[error("Unsupported signature: {0}.")]
     EncodingESFUnsupportedSignature(String),
 
