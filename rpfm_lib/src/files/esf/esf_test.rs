@@ -365,6 +365,11 @@ fn every_signature_round_trips() {
             esf.root_node(),
             "eager round-trip differs for {signature}"
         );
+        assert_eq!(
+            decoded.creation_date(),
+            esf.creation_date(),
+            "header round-trip differs for {signature}"
+        );
 
         let reader = ESFReader::new(bytes).unwrap();
         assert_eq!(reader.signature(), signature);

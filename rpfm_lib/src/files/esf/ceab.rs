@@ -122,8 +122,10 @@ impl ESF {
         buffer: &mut W,
         _extra_data: &Option<EncodeableExtraData>,
     ) -> Result<()> {
-        buffer.write_u32(0)?;
-        buffer.write_u32(AbceCodec::get_timestamp(SystemTime::now())?)?;
+        // These come from the file, like the other formats do. Writing the current time here would
+        // lose the stored one, and the clock is not available on wasm32.
+        buffer.write_u32(self.unknown_1)?;
+        buffer.write_u32(self.creation_date)?;
 
         let mut record_names = Vec::new();
         let mut strings_utf8 = Vec::new();
