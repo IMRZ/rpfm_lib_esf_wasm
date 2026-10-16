@@ -67,6 +67,47 @@ console.log(decoded);
 const encoded = encode(decoded);
 ```
 
+## Lazy decoding
+
+`decode()` decodes the whole node tree in one go. For big files (campaign saves, startpos, ...) that
+means decoding every node, even the ones you never look at.
+
+`createReader()` instead parses only the file header and the shared string tables up front, and decodes
+nodes on demand. Node ids are opaque strings of the form `"<buffer>:<offset>"`.
+
+```javascript
+import { createReader } from "rpfm_lib_esf_wasm";
+
+const reader = createReader(bytes);
+
+// Header info. The node tree is not touched.
+reader.signature();       // "CBAB"
+reader.creation_date();
+const root = reader.root_id();
+
+// Structure. Only children headers are read: grandchildren are skipped, never decoded.
+// `children` returns the groups a record is stored in, so it's `[[...]]` for most records.
+const groups = reader.children(root);
+groups[0][5];             // { id, kind: "record", name: "INNER", version, flags, size }
+
+// Values. Only the node you ask for is decoded.
+const value = reader.value(groups[0][1].id);        // a single leaf
+const subtree = reader.materialize(groups[0][5].id); // one whole subtree
+const raw = reader.chunk(groups[0][4].id);           // raw bytes, no decoding at all
+
+// Path sugar, relative to the root. Add `[n]` for repeated names.
+reader.lookup("INNER");      // "<buffer>:<offset>"
+reader.lookup("ITEM[1]");    // second record named ITEM
+reader.lookup("MISSING");    // null
+
+// Nested ESFs (the COMPRESSED_DATA case) are decompressed on demand too.
+const innerRoot = reader.decompress(reader.lookup("COMPRESSED_DATA"));
+reader.materialize(innerRoot);   // decoded exactly like decode() would
+```
+
+`materialize()` returns the same structure `decode()` returns, so its result can be fed straight to
+`encode()`.
+
 ## Build
 
 ```sh
