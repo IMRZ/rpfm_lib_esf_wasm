@@ -1,6 +1,217 @@
 /* @ts-self-types="./rpfm_lib_esf_wasm.d.ts" */
 
 /**
+ * A lazily-decoded ESF file.
+ *
+ * Node ids are opaque strings (of the form `"buffer:offset"`) returned by [`ESFReaderHandle::root_id`],
+ * [`ESFReaderHandle::children`] and [`ESFReaderHandle::lookup`]. Pass them back to the other methods.
+ */
+class ESFReaderHandle {
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(ESFReaderHandle.prototype);
+        obj.__wbg_ptr = ptr;
+        ESFReaderHandleFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        ESFReaderHandleFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_esfreaderhandle_free(ptr, 0);
+    }
+    /**
+     * Returns the children of a record node, grouped like they are stored in the file.
+     *
+     * Only the children headers are read: grandchildren are skipped, never decoded.
+     * @param {string} node_id
+     * @returns {any}
+     */
+    children(node_id) {
+        const ptr0 = passStringToWasm0(node_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.esfreaderhandle_children(this.__wbg_ptr, ptr0, len0);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * Returns the raw bytes of a node, without decoding them.
+     * @param {string} node_id
+     * @returns {Uint8Array}
+     */
+    chunk(node_id) {
+        const ptr0 = passStringToWasm0(node_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.esfreaderhandle_chunk(this.__wbg_ptr, ptr0, len0);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v2;
+    }
+    /**
+     * Returns the creation date of the file.
+     * @returns {number}
+     */
+    creation_date() {
+        const ret = wasm.esfreaderhandle_creation_date(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Decompresses the nested ESF inside a `COMPRESSED_DATA` record, and returns the id of its
+     * root node. All the other reader methods then work on it as usual.
+     * @param {string} node_id
+     * @returns {string}
+     */
+    decompress(node_id) {
+        let deferred3_0;
+        let deferred3_1;
+        try {
+            const ptr0 = passStringToWasm0(node_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len0 = WASM_VECTOR_LEN;
+            const ret = wasm.esfreaderhandle_decompress(this.__wbg_ptr, ptr0, len0);
+            var ptr2 = ret[0];
+            var len2 = ret[1];
+            if (ret[3]) {
+                ptr2 = 0; len2 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred3_0 = ptr2;
+            deferred3_1 = len2;
+            return getStringFromWasm0(ptr2, len2);
+        } finally {
+            wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+        }
+    }
+    /**
+     * Resolves a `/`-separated path of record names into a node id, or `null` if not found.
+     *
+     * Segments may carry an index for repeated names (`CHARACTER[2]`).
+     * @param {string} path
+     * @returns {any}
+     */
+    lookup(path) {
+        const ptr0 = passStringToWasm0(path, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.esfreaderhandle_lookup(this.__wbg_ptr, ptr0, len0);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * Decodes the whole subtree starting at a node, on demand.
+     * @param {string} node_id
+     * @returns {any}
+     */
+    materialize(node_id) {
+        const ptr0 = passStringToWasm0(node_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.esfreaderhandle_materialize(this.__wbg_ptr, ptr0, len0);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * Returns the header info of a single node, without decoding its payload.
+     * @param {string} node_id
+     * @returns {any}
+     */
+    node(node_id) {
+        const ptr0 = passStringToWasm0(node_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.esfreaderhandle_node(this.__wbg_ptr, ptr0, len0);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * Returns the id of the root node.
+     * @returns {string}
+     */
+    root_id() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.esfreaderhandle_root_id(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * Returns the signature of the file (`"CAAB"`, `"CBAB"`, ...).
+     * @returns {string}
+     */
+    signature() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.esfreaderhandle_signature(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * Returns the `unknown_1` value of the file.
+     * @returns {number}
+     */
+    unknown_1() {
+        const ret = wasm.esfreaderhandle_unknown_1(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Decodes the value of a single node, on demand. Fails if the node is a record.
+     * @param {string} node_id
+     * @returns {any}
+     */
+    value(node_id) {
+        const ptr0 = passStringToWasm0(node_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.esfreaderhandle_value(this.__wbg_ptr, ptr0, len0);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+}
+if (Symbol.dispose) ESFReaderHandle.prototype[Symbol.dispose] = ESFReaderHandle.prototype.free;
+exports.ESFReaderHandle = ESFReaderHandle;
+
+/**
+ * Creates a lazy reader over an ESF file.
+ *
+ * Unlike [`decode`], this does not decode the node tree. Only the file header and the shared
+ * string tables are parsed, and the returned reader decodes nodes on demand.
+ * @param {Uint8Array} input
+ * @returns {ESFReaderHandle}
+ */
+function create_reader(input) {
+    const ptr0 = passArray8ToWasm0(input, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.create_reader(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return ESFReaderHandle.__wrap(ret[0]);
+}
+exports.create_reader = create_reader;
+
+/**
  * @param {Uint8Array} input
  * @returns {any}
  */
@@ -248,6 +459,10 @@ function __wbg_get_imports() {
         "./rpfm_lib_esf_wasm_bg.js": import0,
     };
 }
+
+const ESFReaderHandleFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_esfreaderhandle_free(ptr >>> 0, 1));
 
 function addToExternrefTable0(obj) {
     const idx = wasm.__externref_table_alloc();
